@@ -5,3 +5,37 @@ dam mesaj pe teams profului cu notele
 risc mare: sa se dezactiveze contul de arcgis!!
 Minim 4 - 5 riscuri
 risc mediu: nu avem experienta cu tehnologiile
+
+
+
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  // add your Firebase config here
+    apiKey: "AIzaSyBpryQ6kgpkqpghOAwAmcSLkEyPi0rFXOg",
+    authDomain: "bucharest-gas-stations-map.firebaseapp.com",
+    databaseURL: "https://console.firebase.google.com/project/bucharest-gas-stations-map/database/bucharest-gas-stations-map-default-rtdb/data",
+    projectId: "bucharest-gas-stations-map",
+    storageBucket: "bucharest-gas-stations-map.appspot.com",
+    messagingSenderId: "565100034158",
+    appId: "1:565100034158:web:289409cd248c3f84530e7f",
+    measurementId: "G-7JLKV8CYP8"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
+
+
+
+
+nume = proiectISI123
+parola = MihaiAdelinTeo1
+
+new API KEY = AAPKfc69bd3440b74e34b234a9ecd0bef01111QfRPopiHBLQghd945auH5VGIW_0aaeyvMFsHz9H3CivnRAaODpHQere5fdEPsv
