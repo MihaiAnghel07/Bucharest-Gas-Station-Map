@@ -1,0 +1,17 @@
+/* import the required JSAPI css */
+// @import url('https://js.arcgis.com/4.12/esri/css/main.css');
+
+.esri-view {
+  height: 500px;
+}
+
+.label {
+  font-size: 18px;
+  text-align: center;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.full-w {
+  width: 100%;
+}
