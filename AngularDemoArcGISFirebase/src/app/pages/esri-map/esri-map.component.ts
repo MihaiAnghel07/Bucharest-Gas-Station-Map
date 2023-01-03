@@ -18,6 +18,7 @@ import {
   ElementRef,
   OnDestroy
 } from "@angular/core";
+import { dir } from "console";
 import { setDefaultOptions, loadModules } from 'esri-loader';
 import { Subscription } from "rxjs";
 import { FirebaseService, ITestItem } from "src/app/services/database/firebase";
@@ -44,6 +45,7 @@ export class EsriMapComponent implements OnInit, OnDestroy {
   _FeatureSet;
   _Point;
   _locator;
+  _Track;
 
   // Instances
   map: esri.Map;
@@ -55,7 +57,7 @@ export class EsriMapComponent implements OnInit, OnDestroy {
   zoom = 10;
   //Coordonate Bucuresti
   center: Array<number> = [26.156200, 44.463637];
-  basemap = "streets-vector";
+  basemap = "arcgis-topographic";
   loaded = false;
   pointCoords: number[] = [26.156200, 44.463637];
   dir: number = 0;
@@ -79,7 +81,7 @@ export class EsriMapComponent implements OnInit, OnDestroy {
       setDefaultOptions({ css: true });
 
       // Load the modules for the ArcGIS API for JavaScript
-      const [esriConfig, Map, MapView, FeatureLayer, Graphic, Point, GraphicsLayer, route, RouteParameters, FeatureSet] = await loadModules([
+      const [esriConfig, Map, MapView, FeatureLayer, Graphic, Point, GraphicsLayer, route, RouteParameters, FeatureSet, Locate, Track] = await loadModules([
         "esri/config",
         "esri/Map",
         "esri/views/MapView",
@@ -89,11 +91,13 @@ export class EsriMapComponent implements OnInit, OnDestroy {
         "esri/layers/GraphicsLayer",
         "esri/rest/route",
         "esri/rest/support/RouteParameters",
-        "esri/rest/support/FeatureSet"
+        "esri/rest/support/FeatureSet",
+        "esri/widgets/Locate",
+        "esri/widgets/Track"
       ]);
 
       esriConfig.apiKey = "AAPKfc69bd3440b74e34b234a9ecd0bef01111QfRPopiHBLQghd945auH5VGIW_0aaeyvMFsHz9H3CivnRAaODpHQere5fdEPsv";
-
+      
       this._Map = Map;
       this._MapView = MapView;
       this._FeatureLayer = FeatureLayer;
@@ -103,6 +107,7 @@ export class EsriMapComponent implements OnInit, OnDestroy {
       this._RouteParameters = RouteParameters;
       this._FeatureSet = FeatureSet;
       this._Point = Point;
+      this._Track = Track;
 
       // Configure the Map
       const mapProperties = {
@@ -133,9 +138,17 @@ export class EsriMapComponent implements OnInit, OnDestroy {
         console.log("map moved: ", point.longitude, point.latitude);
       });
 
+      
+
+
       await this.view.when(); // wait for map to load
       console.log("ArcGIS map loaded");
       console.log("Map center: " + this.view.center.latitude + ", " + this.view.center.longitude);
+      
+      this.addTracking();
+      this.addRouter();
+      //this.addFindPlaces();
+      
       return this.view;
     } catch (error) {
       console.log("EsriLoader: ", error);
@@ -173,6 +186,181 @@ export class EsriMapComponent implements OnInit, OnDestroy {
     this.map.add(parksLayer, 0);
 
     console.log("feature layers added");
+  }
+
+  addTracking() {
+    // tracking 
+    const track = new this._Track({
+      view: this.view,
+      graphic: new this._Graphic({
+        symbol: {
+          type: "simple-marker",
+          size: "12px",
+          color: "green",
+          outline: {
+            color: "#efefef",
+            width: "1.5px"
+          }
+        }
+      }),
+      useHeadingEnabled: false
+    });
+    this.view.ui.add(track, "top-left");
+  }
+
+  addRouter() {
+    const routeUrl = "https://route-api.arcgis.com/arcgis/rest/services/World/Route/NAServer/Route_World";
+
+    this.view.on("click", (event) => {
+      console.log("point clicked: ", event.mapPoint.latitude, event.mapPoint.longitude);
+      if (this.view.graphics.length === 0) {
+        addGraphic("origin", event.mapPoint);
+      } else if (this.view.graphics.length === 1) {
+        addGraphic("destination", event.mapPoint);
+        getRoute(); // Call the route service
+      } else {
+        this.view.graphics.removeAll();
+        addGraphic("origin", event.mapPoint);
+      }
+    });
+
+    var addGraphic = (type: any, point: any) => {
+      const graphic = new this._Graphic({
+        symbol: {
+          type: "simple-marker",
+          color: (type === "origin") ? "white" : "black",
+          size: "8px"
+        } as any,
+        geometry: point
+      });
+      this.view.graphics.add(graphic);
+    }
+
+    var getRoute = () => {
+      const routeParams = new this._RouteParameters({
+        stops: new this._FeatureSet({
+          features: this.view.graphics.toArray()
+        }),
+        returnDirections: true
+      });
+
+      this._Route.solve(routeUrl, routeParams).then((data: any) => {
+        for (let result of data.routeResults) {
+          result.route.symbol = {
+            type: "simple-line",
+            color: [5, 150, 255],
+            width: 3
+          };
+          this.view.graphics.add(result.route);
+        }
+
+        // Display directions
+        if (data.routeResults.length > 0) {
+          const directions: any = document.createElement("ol");
+          directions.classList = "esri-widget esri-widget--panel esri-directions__scroller";
+          directions.style.marginTop = "0";
+          directions.style.padding = "15px 15px 15px 30px";
+          const features = data.routeResults[0].directions.features;
+  
+
+          let sum = 0;
+          // Show each direction
+          features.forEach((result: any, i: any) => {
+            sum += parseFloat(result.attributes.length);
+            const direction = document.createElement("li");
+            direction.innerHTML = result.attributes.text + " (" + result.attributes.length * 1.609344 + " km)";
+            directions.appendChild(direction);
+            if (features.length - 1 == i) {
+              const direction2 = document.createElement("li");
+              direction2.innerHTML = "Total distance: " + sum * 1.609344 + " km";
+              directions.appendChild(direction2);
+            }
+          });
+          
+
+          sum = sum * 1.609344;
+          console.log('dist (km) = ', sum);
+
+          this.view.ui.empty("top-right");
+          this.view.ui.add(directions, "top-right");
+
+        }
+
+      }).catch((error: any) => {
+        console.log(error);
+      });
+    }
+  }
+
+  addFindPlaces() {
+    const places = ["Choose a place type...", "Parks and Outdoors", "Coffee shop", "Gas station", "Food", "Hotel"];
+
+    const select = document.createElement("select");
+    select.setAttribute("class", "esri-widget esri-select");
+    select.setAttribute("style", "width: 175px; font-family: 'Avenir Next W00'; font-size: 1em");
+
+    places.forEach(function(p){
+      const option = document.createElement("option");
+      option.value = p;
+      option.innerHTML = p;
+      select.appendChild(option);
+    });
+
+    this.view.ui.add(select, "top-left");
+
+    const locatorUrl = "http://geocode-api.arcgis.com/arcgis/rest/services/World/GeocodeServer";
+
+    // Find places and add them to the map
+    function findPlaces(category, pt) {
+      this.locator.addressToLocations(locatorUrl, {
+        location: pt,
+        categories: [category],
+        maxLocations: 25,
+        outFields: ["Place_addr", "PlaceName"]
+      })
+
+      .then(function(results) {
+        this.view.popup.close();
+        this.view.graphics.removeAll();
+
+        results.forEach(function(result){
+          this.view.graphics.add(
+            new this.Graphic({
+              attributes: result.attributes,  // Data attributes returned
+              geometry: result.location, // Point returned
+              symbol: {
+              type: "simple-marker",
+              color: "#000000",
+              size: "12px",
+              outline: {
+                color: "#ffffff",
+                width: "2px"
+              }
+              },
+
+              popupTemplate: {
+                title: "{PlaceName}", // Data attribute names
+                content: "{Place_addr}"
+              }
+          }));
+        });
+
+      });
+
+    }
+
+    // Search for places in center of map
+    this.view.watch("stationary", function(val) {
+      if (val) {
+        findPlaces(select.value, this.view.center);
+      }
+      });
+
+    // Listen for category changes and find places
+    select.addEventListener('change', function (event) {
+      findPlaces((event.target as HTMLTextAreaElement).value, [26.156200, 44.463637]);
+    });
+
   }
 
   addPoint(lat: number, lng: number, register: boolean) {   
@@ -295,7 +483,7 @@ export class EsriMapComponent implements OnInit, OnDestroy {
       // The map has been initialized
       console.log("mapView ready: ", this.view.ready);
       this.loaded = this.view.ready;
-      this.runTimer();
+      //this.runTimer();
     });
   }
 
