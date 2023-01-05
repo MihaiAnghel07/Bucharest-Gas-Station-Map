@@ -46,6 +46,7 @@ export class EsriMapComponent implements OnInit, OnDestroy {
   _Point;
   _locator;
   _Track;
+  _Locator;
 
   // Instances
   map: esri.Map;
@@ -81,7 +82,7 @@ export class EsriMapComponent implements OnInit, OnDestroy {
       setDefaultOptions({ css: true });
 
       // Load the modules for the ArcGIS API for JavaScript
-      const [esriConfig, Map, MapView, FeatureLayer, Graphic, Point, GraphicsLayer, route, RouteParameters, FeatureSet, Locate, Track] = await loadModules([
+      const [esriConfig, Map, MapView, FeatureLayer, Graphic, Point, GraphicsLayer, route, RouteParameters, FeatureSet, Locate, Track, Locator] = await loadModules([
         "esri/config",
         "esri/Map",
         "esri/views/MapView",
@@ -93,7 +94,8 @@ export class EsriMapComponent implements OnInit, OnDestroy {
         "esri/rest/support/RouteParameters",
         "esri/rest/support/FeatureSet",
         "esri/widgets/Locate",
-        "esri/widgets/Track"
+        "esri/widgets/Track",
+        "esri/rest/locator"
       ]);
 
       esriConfig.apiKey = "AAPKfc69bd3440b74e34b234a9ecd0bef01111QfRPopiHBLQghd945auH5VGIW_0aaeyvMFsHz9H3CivnRAaODpHQere5fdEPsv";
@@ -108,6 +110,7 @@ export class EsriMapComponent implements OnInit, OnDestroy {
       this._FeatureSet = FeatureSet;
       this._Point = Point;
       this._Track = Track;
+      this._Locator = Locator;
 
       // Configure the Map
       const mapProperties = {
@@ -146,8 +149,8 @@ export class EsriMapComponent implements OnInit, OnDestroy {
       console.log("Map center: " + this.view.center.latitude + ", " + this.view.center.longitude);
       
       this.addTracking();
-      this.addRouter();
-      //this.addFindPlaces();
+      //this.addRouter();
+      this.addFindPlaces(this._Locator, this.view, this._Graphic);
       
       return this.view;
     } catch (error) {
@@ -292,7 +295,8 @@ export class EsriMapComponent implements OnInit, OnDestroy {
     }
   }
 
-  addFindPlaces() {
+  addFindPlaces(locator, view, Graphic) {
+
     const places = ["Choose a place type...", "Parks and Outdoors", "Coffee shop", "Gas station", "Food", "Hotel"];
 
     const select = document.createElement("select");
@@ -306,26 +310,30 @@ export class EsriMapComponent implements OnInit, OnDestroy {
       select.appendChild(option);
     });
 
-    this.view.ui.add(select, "top-left");
+    view.ui.add(select, "top-left");
 
     const locatorUrl = "http://geocode-api.arcgis.com/arcgis/rest/services/World/GeocodeServer";
 
     // Find places and add them to the map
-    function findPlaces(category, pt) {
-      this.locator.addressToLocations(locatorUrl, {
+    function findPlaces(category, pt, locator, view, Graphic) {
+      locator.addressToLocations(locatorUrl, {
         location: pt,
         categories: [category],
         maxLocations: 25,
-        outFields: ["Place_addr", "PlaceName"]
+        outFields: ["Place_addr", "PlaceName", "X", "Y"]
       })
 
       .then(function(results) {
-        this.view.popup.close();
-        this.view.graphics.removeAll();
+        view.popup.close();
+        view.graphics.removeAll();
+        
+        console.log("got new items from list: ", results[0].location.latitude);
+        
+        var pret = "EUROOOO"
 
         results.forEach(function(result){
-          this.view.graphics.add(
-            new this.Graphic({
+          view.graphics.add(
+            new Graphic({
               attributes: result.attributes,  // Data attributes returned
               geometry: result.location, // Point returned
               symbol: {
@@ -337,10 +345,10 @@ export class EsriMapComponent implements OnInit, OnDestroy {
                 width: "2px"
               }
               },
-
+              
               popupTemplate: {
                 title: "{PlaceName}", // Data attribute names
-                content: "{Place_addr}"
+                content: "{Place_addr}, {X}, {Y}, {pret}",
               }
           }));
         });
@@ -350,15 +358,15 @@ export class EsriMapComponent implements OnInit, OnDestroy {
     }
 
     // Search for places in center of map
-    this.view.watch("stationary", function(val) {
+    view.watch("stationary", function(val) {
       if (val) {
-        findPlaces(select.value, this.view.center);
+        findPlaces(select.value, this.center, locator, view, Graphic);
       }
       });
 
     // Listen for category changes and find places
     select.addEventListener('change', function (event) {
-      findPlaces((event.target as HTMLTextAreaElement).value, [26.156200, 44.463637]);
+      findPlaces((event.target as HTMLTextAreaElement).value, [26.156200, 44.463637], locator, view, Graphic);
     });
 
   }
