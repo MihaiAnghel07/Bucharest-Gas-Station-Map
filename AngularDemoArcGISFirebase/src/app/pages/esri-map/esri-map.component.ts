@@ -18,9 +18,10 @@ import {
   ElementRef,
   OnDestroy
 } from "@angular/core";
+import { dir } from "console";
 import { setDefaultOptions, loadModules } from 'esri-loader';
 import { Subscription } from "rxjs";
-import { FirebaseService, ITestItem } from "src/app/services/database/firebase";
+import { FirebaseService, ITestItem, GasStation } from "src/app/services/database/firebase";
 import { FirebaseMockService } from "src/app/services/database/firebase-mock";
 import esri = __esri; // Esri TypeScript Types
 
@@ -44,6 +45,8 @@ export class EsriMapComponent implements OnInit, OnDestroy {
   _FeatureSet;
   _Point;
   _locator;
+  _Track;
+  _Locator;
 
   // Instances
   map: esri.Map;
@@ -53,10 +56,11 @@ export class EsriMapComponent implements OnInit, OnDestroy {
 
   // Attributes
   zoom = 10;
-  center: Array<number> = [-118.73682450024377, 34.07817583063242];
-  basemap = "streets-vector";
+  //Coordonate Bucuresti
+  center: Array<number> = [26.156200, 44.463637];
+  basemap = "arcgis-topographic";
   loaded = false;
-  pointCoords: number[] = [-118.73682450024377, 34.07817583063242];
+  pointCoords: number[] = [26.156200, 44.463637];
   dir: number = 0;
   count: number = 0;
   timeoutHandler = null;
@@ -65,6 +69,8 @@ export class EsriMapComponent implements OnInit, OnDestroy {
   isConnected: boolean = false;
   subscriptionList: Subscription;
   subscriptionObj: Subscription;
+  // add gas stations to local memory
+  subscriptionGasStationList: Subscription;
 
   constructor(
     private fbs: FirebaseService
@@ -78,7 +84,7 @@ export class EsriMapComponent implements OnInit, OnDestroy {
       setDefaultOptions({ css: true });
 
       // Load the modules for the ArcGIS API for JavaScript
-      const [esriConfig, Map, MapView, FeatureLayer, Graphic, Point, GraphicsLayer, route, RouteParameters, FeatureSet] = await loadModules([
+      const [esriConfig, Map, MapView, FeatureLayer, Graphic, Point, GraphicsLayer, route, RouteParameters, FeatureSet, Locate, Track, Locator] = await loadModules([
         "esri/config",
         "esri/Map",
         "esri/views/MapView",
@@ -88,10 +94,13 @@ export class EsriMapComponent implements OnInit, OnDestroy {
         "esri/layers/GraphicsLayer",
         "esri/rest/route",
         "esri/rest/support/RouteParameters",
-        "esri/rest/support/FeatureSet"
+        "esri/rest/support/FeatureSet",
+        "esri/widgets/Locate",
+        "esri/widgets/Track",
+        "esri/rest/locator"
       ]);
 
-      esriConfig.apiKey = "AAPK8418d00c2c974b78a542d4ab8152983ctiVlHjKJfUr_ArIU7XnlELrfM7b85CphpaaPJuge-VS9N1mkYcjeeUTypJLU58WK";
+      esriConfig.apiKey = "AAPKfc69bd3440b74e34b234a9ecd0bef01111QfRPopiHBLQghd945auH5VGIW_0aaeyvMFsHz9H3CivnRAaODpHQere5fdEPsv";
 
       this._Map = Map;
       this._MapView = MapView;
@@ -102,6 +111,8 @@ export class EsriMapComponent implements OnInit, OnDestroy {
       this._RouteParameters = RouteParameters;
       this._FeatureSet = FeatureSet;
       this._Point = Point;
+      this._Track = Track;
+      this._Locator = Locator;
 
       // Configure the Map
       const mapProperties = {
@@ -132,9 +143,19 @@ export class EsriMapComponent implements OnInit, OnDestroy {
         console.log("map moved: ", point.longitude, point.latitude);
       });
 
+
+
+
       await this.view.when(); // wait for map to load
       console.log("ArcGIS map loaded");
       console.log("Map center: " + this.view.center.latitude + ", " + this.view.center.longitude);
+
+      this.addTracking();
+      this.addRouter();
+      //this.addGasStationItem("ala jmk", 100.23, 111.22, 222);
+      //this.addFindPlaces(this._Locator, this.view, this._Graphic, this.fbs, this);
+
+
       return this.view;
     } catch (error) {
       console.log("EsriLoader: ", error);
@@ -174,7 +195,221 @@ export class EsriMapComponent implements OnInit, OnDestroy {
     console.log("feature layers added");
   }
 
-  addPoint(lat: number, lng: number, register: boolean) {   
+  addTracking() {
+    // tracking
+    const track = new this._Track({
+      view: this.view,
+      graphic: new this._Graphic({
+        symbol: {
+          type: "simple-marker",
+          size: "12px",
+          color: "green",
+          outline: {
+            color: "#efefef",
+            width: "1.5px"
+          }
+        }
+      }),
+      useHeadingEnabled: false
+    });
+    this.view.ui.add(track, "top-left");
+  }
+
+  addRouter() {
+    const routeUrl = "https://route-api.arcgis.com/arcgis/rest/services/World/Route/NAServer/Route_World";
+
+    this.view.on("click", (event) => {
+      console.log("point clicked: ", event.mapPoint.latitude, event.mapPoint.longitude);
+      if (this.view.graphics.length === 0) {
+        addGraphic("origin", event.mapPoint);
+      } else if (this.view.graphics.length === 1) {
+        addGraphic("destination", event.mapPoint);
+        getRoute(); // Call the route service
+      } else {
+        this.view.graphics.removeAll();
+        addGraphic("origin", event.mapPoint);
+      }
+    });
+
+    var addGraphic = (type: any, point: any) => {
+      const graphic = new this._Graphic({
+        symbol: {
+          type: "simple-marker",
+          color: (type === "origin") ? "white" : "black",
+          size: "8px"
+        } as any,
+        geometry: point
+      });
+      this.view.graphics.add(graphic);
+    }
+
+    var getRoute = () => {
+      const routeParams = new this._RouteParameters({
+        stops: new this._FeatureSet({
+          features: this.view.graphics.toArray()
+        }),
+        returnDirections: true
+      });
+
+      this._Route.solve(routeUrl, routeParams).then((data: any) => {
+        for (let result of data.routeResults) {
+          result.route.symbol = {
+            type: "simple-line",
+            color: [5, 150, 255],
+            width: 3
+          };
+          this.view.graphics.add(result.route);
+        }
+
+        // Display directions
+        if (data.routeResults.length > 0) {
+          const directions: any = document.createElement("ol");
+          directions.classList = "esri-widget esri-widget--panel esri-directions__scroller";
+          directions.style.marginTop = "0";
+          directions.style.padding = "15px 15px 15px 30px";
+          const features = data.routeResults[0].directions.features;
+
+
+          let sum = 0;
+          // Show each direction
+          features.forEach((result: any, i: any) => {
+            sum += parseFloat(result.attributes.length);
+            const direction = document.createElement("li");
+            direction.innerHTML = result.attributes.text + " (" + result.attributes.length * 1.609344 + " km)";
+            directions.appendChild(direction);
+            if (features.length - 1 == i) {
+              const direction2 = document.createElement("li");
+              direction2.innerHTML = "Total distance: " + sum * 1.609344 + " km";
+              directions.appendChild(direction2);
+            }
+          });
+
+
+          sum = sum * 1.609344;
+          console.log('dist (km) = ', sum);
+
+          this.view.ui.empty("top-right");
+          this.view.ui.add(directions, "top-right");
+
+        }
+
+      }).catch((error: any) => {
+        console.log(error);
+      });
+    }
+  }
+
+  addFindPlaces(locator, view, Graphic, fbs, current_instance) {
+
+    const places = ["Choose a place type...", "Parks and Outdoors", "Coffee shop", "Gas station", "Food", "Hotel"];
+
+    const select = document.createElement("select");
+    select.setAttribute("class", "esri-widget esri-select");
+    select.setAttribute("style", "width: 175px; font-family: 'Avenir Next W00'; font-size: 1em");
+
+    places.forEach(function(p){
+      const option = document.createElement("option");
+      option.value = p;
+      option.innerHTML = p;
+      select.appendChild(option);
+    });
+
+    view.ui.add(select, "top-left");
+
+    const locatorUrl = "http://geocode-api.arcgis.com/arcgis/rest/services/World/GeocodeServer";
+
+    // Find places and add them to the map
+    function findPlaces(category, pt, locator, view, Graphic) {
+      locator.addressToLocations(locatorUrl, {
+        location: pt,
+        categories: [category],
+        maxLocations: 10,
+        outFields: ["Place_addr", "PlaceName", "X", "Y"]
+      })
+
+      .then(function(results) {
+        view.popup.close();
+        view.graphics.removeAll();
+
+        console.log("got new items from list: ", results[0].location.latitude);
+
+        var pret = "EUROOOO"
+
+        // Adding gas station to database
+        results.forEach(function(result){
+          let diesel_price = Math.random();
+          diesel_price += 7;
+
+          let gas_price = Math.random();
+          gas_price += 6;
+          current_instance.addGasStationItem(result.attributes.PlaceName, result.location.latitude,
+                                             result.location.longitude, diesel_price, gas_price);
+
+          view.graphics.add(
+            new Graphic({
+              attributes: result.attributes,  // Data attributes returned
+              geometry: result.location, // Point returned
+              symbol: {
+              type: "simple-marker",
+              color: "#000000",
+              size: "12px",
+              outline: {
+                color: "#ffffff",
+                width: "2px"
+              }
+              },
+
+              popupTemplate: {
+                title: "{PlaceName}", // Data attribute names
+                content: "{Place_addr}, {X}, {Y}, {pret}",
+              }
+          }));
+        });
+
+      });
+
+    }
+
+    // Search for places in center of map
+    view.watch("stationary", function(val) {
+      if (val) {
+        findPlaces(select.value, this.center, locator, view, Graphic);
+      }
+      });
+
+    // Listen for category changes and find places
+    select.addEventListener('change', function (event) {
+      findPlaces((event.target as HTMLTextAreaElement).value, [26.156200, 44.463637], locator, view, Graphic);
+    });
+
+  }
+
+  // Here we add the gast station point to the map
+  addGasStation(name: string, lat: number, lng: number, diesel_price: number, gas_price: number, register: boolean) {
+    const point = { //Create a point
+        type: "point",
+        longitude: lng,
+        latitude: lat
+      };
+      const simpleMarkerSymbol = {
+        type: "simple-marker",
+        color: [255, 0, 0],  // Orange
+        outline: {
+          color: [255, 255, 255], // White
+          width: 1
+        }
+      };
+    let pointGraphic: esri.Graphic = new this._Graphic({
+           geometry: point,
+           symbol: simpleMarkerSymbol
+         });
+    this.graphicsLayer.add(pointGraphic);
+        if (register) {
+          this.pointGraphic = pointGraphic;
+        }
+  }
+
+  addPoint(lat: number, lng: number, register: boolean) {
     const point = { //Create a point
       type: "point",
       longitude: lng,
@@ -251,11 +486,14 @@ export class EsriMapComponent implements OnInit, OnDestroy {
   }
 
   connectFirebase() {
+
     if (this.isConnected) {
       return;
     }
+
     this.isConnected = true;
     this.fbs.connectToDatabase();
+
     this.subscriptionList = this.fbs.getChangeFeedList().subscribe((items: ITestItem[]) => {
       console.log("got new items from list: ", items);
       this.graphicsLayer.removeAll();
@@ -263,14 +501,33 @@ export class EsriMapComponent implements OnInit, OnDestroy {
         this.addPoint(item.lat, item.lng, false);
       }
     });
+
     this.subscriptionObj = this.fbs.getChangeFeedObj().subscribe((stat: ITestItem[]) => {
       console.log("item updated from object: ", stat);
+
     });
+
+    // Added gas station list to local memory when connecting to Firebase
+    this.subscriptionGasStationList = this.fbs.getGasStationsList().subscribe((items: GasStation[]) => {
+          console.log("New gas station point added from: ", items);
+          this.graphicsLayer.removeAll();
+          for (let item of items) {
+            this.addGasStation(item.name, item.lat, item.lng, item.diesel_price, item.gas_price, false);
+          }
+        });
+
+    //console.log("Lista cu gas stations uri are dimensiuena aia blana: ", Object.keys(this.fbs.getGasStationsList()).length);
+    // TODO : check if the asked list is the same from firebase
   }
 
   addPointItem() {
     console.log("Map center: " + this.view.center.latitude + ", " + this.view.center.longitude);
     this.fbs.addPointItem(this.view.center.latitude, this.view.center.longitude);
+  }
+
+  addGasStationItem(name, lat, lng, diesel_price, gas_price) {
+    console.log("Benzinarie adaugata: " + lat + ", " + lng);
+        this.fbs.addGasStation(name, lat, lng, diesel_price, gas_price);
   }
 
 
@@ -286,6 +543,10 @@ export class EsriMapComponent implements OnInit, OnDestroy {
     if (this.subscriptionObj != null) {
       this.subscriptionObj.unsubscribe();
     }
+
+    if (this.subscriptionGasStationList != null) {
+          this.subscriptionGasStationList.unsubscribe();
+        }
   }
 
   ngOnInit() {
@@ -295,7 +556,7 @@ export class EsriMapComponent implements OnInit, OnDestroy {
       // The map has been initialized
       console.log("mapView ready: ", this.view.ready);
       this.loaded = this.view.ready;
-      this.runTimer();
+      //this.runTimer();
     });
   }
 
