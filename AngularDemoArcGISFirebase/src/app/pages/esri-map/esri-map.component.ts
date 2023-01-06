@@ -24,6 +24,7 @@ import { Subscription } from "rxjs";
 import { FirebaseService, ITestItem, GasStation } from "src/app/services/database/firebase";
 import { FirebaseMockService } from "src/app/services/database/firebase-mock";
 import esri = __esri; // Esri TypeScript Types
+import { getAuth, signInWithCustomToken } from "firebase/auth";
 
 @Component({
   selector: "app-esri-map",
@@ -124,7 +125,7 @@ export class EsriMapComponent implements OnInit, OnDestroy {
       this.addFeatureLayers();
       this.addGraphicLayers();
 
-      this.addPoint(this.pointCoords[1], this.pointCoords[0], true);
+      //this.addPoint(this.pointCoords[1], this.pointCoords[0], true);
 
       // Initialize the MapView
       const mapViewProperties = {
@@ -154,6 +155,7 @@ export class EsriMapComponent implements OnInit, OnDestroy {
       this.addRouter();
       //this.addGasStationItem("ala jmk", 100.23, 111.22, 222);
       //this.addFindPlaces(this._Locator, this.view, this._Graphic, this.fbs, this);
+      this.GasStationSelector(this._Locator, this.view, this._Graphic, this.fbs, this);
 
 
       return this.view;
@@ -161,6 +163,10 @@ export class EsriMapComponent implements OnInit, OnDestroy {
       console.log("EsriLoader: ", error);
     }
   }
+
+  // Login - with firebase
+
+  // ------------------------------------------------------------
 
   addGraphicLayers() {
     this.graphicsLayer = new this._GraphicsLayer();
@@ -299,6 +305,103 @@ export class EsriMapComponent implements OnInit, OnDestroy {
     }
   }
 
+
+  /*  Function to draw dropdown in order to select ce ai nevoie */
+
+    GasStationSelector(locator, view, Graphic, fbs, current_instance) {
+
+      const places = ["Choose a place type...", "Gas stations", "Stations with selfwash", "Stations with shops",
+                      "Stations with selfwash and shop"];
+
+      const select = document.createElement("select");
+      select.setAttribute("class", "esri-widget esri-select");
+      select.setAttribute("style", "width: 175px; font-family: 'Avenir Next W00'; font-size: 1em");
+
+      places.forEach(function(p){
+        const option = document.createElement("option");
+        option.value = p;
+        option.innerHTML = p;
+        select.appendChild(option);
+      });
+
+      view.ui.add(select, "top-left");
+
+
+      function determine_category(category) {
+        current_instance.graphicsLayer.removeAll();
+
+        if (category.localeCompare("Gas stations") == 0) {
+            console.log("Prima ramura a if-ului full gas stations")
+            // Added gas station list to local memory when connecting to Firebase
+            current_instance.subscriptionGasStationList = fbs.getGasStationsList().subscribe((items: GasStation[]) => {
+                console.log("New gas station point added from: ", items);
+                current_instance.graphicsLayer.removeAll();
+
+                for (let item of items) {
+                  current_instance.addGasStation(item.name, item.lat, item.lng, item.diesel_price, item.gas_price,
+                  false, item.has_shop, item.has_carwash);
+                }
+              });
+        }
+        if (category.localeCompare("Stations with selfwash") == 0) {
+            console.log("A doua  ramura a if-ului self gas stations")
+
+            current_instance.subscriptionGasStationList = fbs.getGasStationsList().subscribe((items: GasStation[]) => {
+                console.log("New gas station point added from: ", items);
+                current_instance.graphicsLayer.removeAll();
+
+                for (let item of items) {
+                  if (item.has_carwash) {
+                    current_instance.addGasStation(item.name, item.lat, item.lng, item.diesel_price, item.gas_price,
+                    false, item.has_shop, item.has_carwash);
+                  }
+                }
+              });
+        }
+        if (category.localeCompare("Stations with shops") == 0) {
+            console.log("A treia ramura a if-ului shops gas stations")
+            current_instance.subscriptionGasStationList = fbs.getGasStationsList().subscribe((items: GasStation[]) => {
+              console.log("New gas station point added from: ", items);
+              current_instance.graphicsLayer.removeAll();
+
+              for (let item of items) {
+                if (item.has_shop) {
+                  current_instance.addGasStation(item.name, item.lat, item.lng, item.diesel_price, item.gas_price,
+                  false, item.has_shop, item.has_carwash);
+                }
+              }
+            });
+        }
+        if (category.localeCompare("Stations with selfwash and shop") == 0) {
+            console.log("Ultima ramura a if-ului shops gas stations")
+            current_instance.subscriptionGasStationList = fbs.getGasStationsList().subscribe((items: GasStation[]) => {
+              console.log("New gas station point added from: ", items);
+              current_instance.graphicsLayer.removeAll();
+
+              for (let item of items) {
+                if (item.has_carwash && item.has_shop) {
+                  current_instance.addGasStation(item.name, item.lat, item.lng, item.diesel_price, item.gas_price,
+                  false, item.has_shop, item.has_carwash);
+                }
+              }
+            });
+        }
+      }
+// ------------------------------------------------------------------------------------------------------------
+      // Listen for category changes and find places
+      select.addEventListener('change', function (event) {
+      determine_category((event.target as HTMLTextAreaElement).value);
+      });
+
+        }
+
+ // Search for places in center of map
+      //view.watch("stationary", function(val) {
+       // if (val) {
+       //   findPlaces(select.value, this.center, locator, view, Graphic);
+        //}
+        //});
+
   addFindPlaces(locator, view, Graphic, fbs, current_instance) {
 
     const places = ["Choose a place type...", "Parks and Outdoors", "Coffee shop", "Gas station", "Food", "Hotel"];
@@ -332,8 +435,6 @@ export class EsriMapComponent implements OnInit, OnDestroy {
         view.graphics.removeAll();
 
         console.log("got new items from list: ", results[0].location.latitude);
-
-        var pret = "EUROOOO"
 
         // Adding gas station to database
         results.forEach(function(result){
@@ -385,7 +486,8 @@ export class EsriMapComponent implements OnInit, OnDestroy {
   }
 
   // Here we add the gast station point to the map
-  addGasStation(name: string, lat: number, lng: number, diesel_price: number, gas_price: number, register: boolean) {
+  addGasStation(name: string, lat: number, lng: number, diesel_price: number, gas_price: number, register: boolean,
+                has_shop: boolean, has_carwash: boolean) {
     const point = { //Create a point
         type: "point",
         longitude: lng,
@@ -399,10 +501,32 @@ export class EsriMapComponent implements OnInit, OnDestroy {
           width: 1
         }
       };
-    let pointGraphic: esri.Graphic = new this._Graphic({
+
+    var out_string = "<p>Benzinaria " + name + " are urmatoarele preturi: </p>" +
+                     "<ul><li>Motorina: " + diesel_price.toFixed(2) + "</li>" +
+                     "<li>Benzina: " +  gas_price.toFixed(2) + "</li>";
+
+    if (has_shop && has_carwash) {
+        out_string = out_string.concat("<li>Benzinaria are magazin propriu si spalatorie.</li><ul>");
+    } else if (has_shop) {
+        out_string = out_string.concat("<li>Benzinaria are magazin propriu.</li><ul>");
+    } else if (has_carwash) {
+        out_string = out_string.concat("<li>Benzinaria are spalatorie.</li><ul>");
+    } else {
+        out_string = out_string.concat("<ul>");
+    }
+    var pointGraphic: esri.Graphic = new this._Graphic({
            geometry: point,
-           symbol: simpleMarkerSymbol
+           symbol: simpleMarkerSymbol,
+
+
+           popupTemplate: {
+             title: name, // Data attribute names
+             content: out_string,
+
+           }
          });
+
     this.graphicsLayer.add(pointGraphic);
         if (register) {
           this.pointGraphic = pointGraphic;
@@ -507,14 +631,6 @@ export class EsriMapComponent implements OnInit, OnDestroy {
 
     });
 
-    // Added gas station list to local memory when connecting to Firebase
-    this.subscriptionGasStationList = this.fbs.getGasStationsList().subscribe((items: GasStation[]) => {
-          console.log("New gas station point added from: ", items);
-          this.graphicsLayer.removeAll();
-          for (let item of items) {
-            this.addGasStation(item.name, item.lat, item.lng, item.diesel_price, item.gas_price, false);
-          }
-        });
 
     //console.log("Lista cu gas stations uri are dimensiuena aia blana: ", Object.keys(this.fbs.getGasStationsList()).length);
     // TODO : check if the asked list is the same from firebase
